@@ -6,7 +6,7 @@ Already Implemented:
 - Basic graphics of the game scene
 - Building Block (Part) class: encapsulates information about every object in the game scene
 
-Currently Implmenting:
+Currently Implementing:
 - Physics engine
 - UI
 - Lighting
