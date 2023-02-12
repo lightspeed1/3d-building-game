@@ -15,5 +15,9 @@ class PartData
         glm::mat3 normalMatrix{1.0f};
         int texUnit;
         void scale(glm::vec3 vec);
-        void rotate(glm::vec3 axis, float degrees);
+        void rotate(glm::vec3 axis, float rads);
+        glm::vec3 applyNM(glm::vec3 normal);
+        glm::vec3 localToWorld(glm::vec3 pt);
+
+        PartData operator=(PartData& part);
 };
