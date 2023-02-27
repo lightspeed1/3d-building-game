@@ -263,7 +263,7 @@ void populateCylinderVBData()
 
         //now we create normals (except for top and bottom)
         cylinderNormals[NI] = glm::vec3(cosf(angleIncrement * (i + 0.5f)) * cylinderRadius, 0.0f, -sinf(angleIncrement * (i + 0.5f)) * cylinderRadius);
-        
+        // cylinderNormals[NI] = glm::vec3(1.0f,0.0f,0.0f);
         float cyX = cosf(angleIncrement * i) * cylinderRadius;
         float cyZ = sinf(angleIncrement * i) * cylinderRadius;
         float cyX2 = cosf(angleIncrement * (i+1)) * cylinderRadius;
@@ -353,10 +353,20 @@ inline PhysicsData& indsToPhys(partInds inds)
 
 inline PartData& allParts(int poolInd)
 {
+    // std::cout << "all\n";
+    // if(poolInd < 0)
+    //     return(indsToPart(pool[0].inds));
+    // std::cout << poolInd << " " << pool.size();
+    // std::cout << pool[poolInd].inds.VAOInd << pool[poolInd].inds.vecInd << '\n';
+    // PartData& hi = indsToPart(pool[poolInd].inds);
+    // std::cout << "end\n";
     return(indsToPart(pool[poolInd].inds));
 }
 inline PhysicsData& allPhys(int poolInd)
 {
+    // if(poolInd < 0 || poolInd > totalParts)
+    //     return(indsToPhys(pool[0].inds));
+    // std::cout << poolInd << " " << pool.size();
     return(indsToPhys(pool[poolInd].inds));
 }
 
@@ -593,6 +603,7 @@ void VAOData::drawParts(bool selected, bool outline, bool drawTransformationPart
     glUseProgram(currShader);
     glUniformMatrix4fv(glGetUniformLocation(currShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(currShader, "projection"), 1, GL_FALSE, glm::value_ptr(proj));
+    glUniform1i(glGetUniformLocation(currShader, "offset"), offset);
     //part outlines are not affected by lighting
     if(!selected)
     {
@@ -612,6 +623,7 @@ void VAOData::drawParts(bool selected, bool outline, bool drawTransformationPart
     //draw part outlines for selected parts
     else if(selected)
     {
+        // return;
         for(int i = 0; i < selectedParts.size(); i++)
         {
             partInfo part = pool[selectedParts[i]];
@@ -662,33 +674,35 @@ void markAllUnvisited()
 
 //returns true if there is a path between two nodes (parts) or a node and a group 
 //-in the connectedParts tree.
-bool pathBetweenNodes(int index1, int index2, bool ind2Group)
-{
-    std::vector<int>* mems;
-    if(ind2Group)
-        mems = &(pool[index2].groupPtr->members);
-    markAllUnvisited();
-    //bfs
-    std::deque<int> queue{index1};
-    while(queue.size() > 0)
-    {
-        int currInd = queue[0];
-        queue.pop_front();
-        //if the current part is what we are looking for, return true
-        if(!ind2Group && currInd == index2)
-            return true;
-        //if the current part is in the group we are looking for, return true
-        else if(ind2Group && std::find(mems->begin(), mems->end(), currInd) != mems->end())
-            return true;
-        vector<int>& adjNodes = pool[currInd].nodeInfo.adjacent;
-        for(const int& adj : adjNodes)
-        {
-            if(pool[adj].nodeInfo.visited == false)
-            {
-                queue.push_back(adj);
-                pool[adj].nodeInfo.visited = true;
-            }
-        }
-    }
-    return false;
-}
+// bool pathBetweenNodes(int index1, int index2, bool ind2Group)
+// {
+//     std::vector<int>* mems;
+//     if(ind2Group)
+//         mems = &(pool[index2].groupPtr->members);
+//     else
+//         std::cout << "HELP ME\n";
+//     markAllUnvisited();
+//     //bfs
+//     std::deque<int> queue{index1};
+//     while(queue.size() > 0)
+//     {
+//         int currInd = queue[0];
+//         queue.pop_front();
+//         //if the current part is what we are looking for, return true
+//         if(!ind2Group && currInd == index2)
+//             return true;
+//         //if the current part is in the group we are looking for, return true
+//         else if(ind2Group && std::find(mems->begin(), mems->end(), currInd) != mems->end())
+//             return true;
+//         vector<int>& adjNodes = pool[currInd].nodeInfo.adjacent;
+//         for(const int& adj : adjNodes)
+//         {
+//             if(pool[adj].nodeInfo.visited == false)
+//             {
+//                 queue.push_back(adj);
+//                 pool[adj].nodeInfo.visited = true;
+//             }
+//         }
+//     }
+//     return false;
+// }

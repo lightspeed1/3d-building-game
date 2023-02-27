@@ -31,7 +31,8 @@ extern void rotateSelected(int key);
 extern void removeFromVec(std::vector<int>& vec, int a);
 extern void removeFromAdjacent(int ind);
 extern void detachPart(int p);
-extern bool draggedCheckCollide(int partIndex, int farIndex, std::vector<int>& touching);
+extern bool draggedCheckCollide(int partIndex, int farIndex, std::vector<int>& touching, bool requireTouchingFar);
+
 extern void dragParts();
 extern glm::vec3 shootRay();
 extern void killGroup(group* groupPtr, bool setMemsToNull);
@@ -45,6 +46,9 @@ std::string vec3ToString(glm::vec3 v);
 extern std::chrono::steady_clock::time_point start1;
 extern std::chrono::steady_clock::time_point end1;
 extern int scrollAmount;
-extern bool updateScale;
+extern bool draggingScalePart;
+//If true, then object must be scaled when scale parts are dragged, otherwise, parts will be moved
+extern bool scaleSelected;
+extern void toggleScaleOrMove();
 extern int scalePartInd;
 extern glm::vec3 intPtClose;

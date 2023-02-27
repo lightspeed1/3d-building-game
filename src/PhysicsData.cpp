@@ -51,6 +51,17 @@ int lineSegmentsIntersect(glm::vec3 p1Line1, glm::vec3 p2Line1, glm::vec3 p1Line
     glm::vec3 s = (p2Line1 - p1Line1), r = (p2Line2 - p1Line2);
     glm::vec3 numerator = glm::cross((p1Line2 - p1Line1), r);
     glm::vec3 denominator = glm::cross(s, r);
+    int numSame = 0;
+    if(v3Equal(p1Line1, p1Line2))
+        numSame++;
+    else if(v3Equal(p1Line1, p2Line2))
+        numSame++;
+    if(v3Equal(p2Line1, p1Line2))
+        numSame++;
+    else if(v3Equal(p2Line1, p2Line2))
+        numSame++;
+    if(numSame >= 2)
+        return 0;
     //if lines are parallel, (cross product is 0), then we must check how much of the segments are overlapping.
     if(v3Equal(denominator, glm::vec3(0,0,0)))
     {
@@ -109,7 +120,16 @@ bool inShape(vector<vec3>& shapePoints, vector<pair<int,int>> shapeEdges, vec3 p
         vec3 first = shapePoints[shapeEdges[i].first], second = shapePoints[shapeEdges[i].second];
         vec3 intPts[2];
         int result = (lineSegmentsIntersect(first,second,point,shapeCenter,intPts));
-        if(result == 1)
+        int numSame = 0;
+        if(v3Equal(first, point))
+            numSame++;
+        else if(v3Equal(first, shapeCenter))
+            numSame++;
+        if(v3Equal(second, point))
+            numSame++;
+        else if(v3Equal(second, shapeCenter))
+            numSame++;
+        if(result == 1 && numSame == 0)
         {
             return false;
         }
@@ -227,8 +247,13 @@ bool SAT(int p1Index, int p2Index, glm::vec3* intersectionData)
 {
     PartData& p1 = allParts(p1Index), & p2 = allParts(p2Index);
     PhysicsData p1Phys = allPhys(p1Index), p2Phys = allPhys(p2Index);
+    if(p2Index < 0 || p2Index > totalParts)
+    {
+        return false;
+    }
     int p1Type = pool[p1Index].type;
     int p2Type = pool[p2Index].type;
+    // std::cout << p1Type << " " << p2Type << '\n';
     //must see if there is any gap between the objects on the axis of their normals
     VAOData* theVAOs[] = {VAOs[p1Type], VAOs[p2Type]};
     GLfloat* verts[] = {VAOs[p1Type]->VBData, VAOs[p2Type]->VBData};
@@ -287,6 +312,7 @@ bool SAT(int p1Index, int p2Index, glm::vec3* intersectionData)
     float leastIntersectionValsHigh[2];
     float leastIntersectionLength = 999999.0f;
     int leastIntersectionK;
+    // std::cout << "LEAST INT K: " << leastIntersectionK << '\n';
     int leastIntSamePointsNormSide = 0;
     int leastIntSamePointsOtherSide = 0;
     int normBelongs = 0;
@@ -329,11 +355,13 @@ bool SAT(int p1Index, int p2Index, glm::vec3* intersectionData)
                 GLfloat* currVerts = verts[z]; 
                 int currVertsSize = theVAOs[z]->VBDataSize/sizeof(GLfloat);
                 vec3 currHigh, currLow;
+                
                 float currLowVal = 9999999.0f, currHighVal = -1.0f;
                 
-                for(int j = 0; j < (currVertsSize)/6; j++)
+                for(int j = 0; j < edges[z].size(); j+=2)
                 {
-                    vec3 currPoint = currPart.localToWorld(*((vec3*)(currVerts + (j*6))));
+                    // vec3 currPoint = currPart.localToWorld(*((vec3*)(currVerts + (j*6))));
+                    vec3 currPoint = currPart.localToWorld(*((glm::vec3*)&verts[z][6 * edges[z][j]]));
                     float currProjection = (glm::dot(normal, currPoint));
                     if(currProjection > currHighVal || fequal(currProjection, currHighVal) || j == 0)
                     {
@@ -683,13 +711,13 @@ std::vector<float> finalVelocities(float m1, float m2, float v1, float v2, bool 
     if((v1 >= v2 && finalVb1 >= finalVa1) || (v2 >= v1 && finalVa1 >= finalVb1))
     {
         result[0] = finalVa1; result[1] = finalVb1;
-        if(rotation && output)
-            std::cout << "1\n";
+        // if(rotation && output)
+        //     std::cout << "1\n";
     }
     else
     {
-        if(rotation && output)
-            std::cout << "2\n";
+        // if(rotation && output)
+        //     std::cout << "2\n";
         result[0] = finalVa2; result[1] = finalVb2;
     }
     // if(p1Still && !rotation)
@@ -771,7 +799,7 @@ void partsCollide(int p1Index, int p2Index, glm::vec3 p1PointMass, glm::vec3 p2P
             p2NewAngularVec *= -1;
         if(p1IsStationary)
         {
-            std::cout << "INITIAL: " << glm::length(p1PointAdjustedAngularRelativeToP2) << " " <<  glm::length(p2AdjustedAngularVelocity) << '\n';
+            // std::cout << "INITIAL: " << glm::length(p1PointAdjustedAngularRelativeToP2) << " " <<  glm::length(p2AdjustedAngularVelocity) << '\n';
         }
         std::vector<float> finalAngularVelsP2 = finalVelocities(p1Mass, p2Mass, glm::length(p1PointAdjustedAngularRelativeToP2), glm::length(p2AdjustedAngularVelocity), p1IsStationary, true, true);
 
@@ -1121,6 +1149,22 @@ void physicsTick()
             physics1.angularV = newVels[1];
             physics2.linearV = newVels[2];
             physics2.angularV = newVels[3];
+            // if(isnan(physics1.linearV.x))
+            // {
+            //     std::cout << i << " IS NAN IND\n";
+            // }
+            // if(isnan(physics2.linearV.x))
+            // {
+            //     std::cout << j << " IS NAN IND\n";
+            // }
+            // if(isnan(part1.translate.x))
+            // {
+            //     std::cout << i << " TRANSTRANS IS NAN IND\n";
+            // }
+            // if(isnan(part2.translate.x))
+            // {
+            //     std::cout << j << " TRANSTRANS IS NAN IND\n";
+            // }
             if(p1GroupInd != NULL)
             {
                 group& p1Group = *p1GroupInd;
@@ -1185,7 +1229,7 @@ void cylinderIntersect()
     //if both points are outside either top or bottom normal, then we don't intersect
     if((!p1InBot && !p2InBot) || (!p2InTop && !p1InTop))
     {
-        std::cout << "no intersection\n";
+        // std::cout << "no intersection\n";
     }
 
     //first we trim the line
@@ -1233,12 +1277,12 @@ void cylinderIntersect()
     }
     if(glm::length(closestPoint - botCyl_2D) <= radius)
     {
-        std::cout << "INTERSECTION\n";
+        // std::cout << "INTERSECTION\n";
     }
     else
     {
-        std::cout << "NO INTERSECTION (end)\n";
+        // std::cout << "NO INTERSECTION (end)\n";
     }
-    std::cout << "CLOSEST POINT IS " << closestPoint.x << ", " << closestPoint.y << ", " << closestPoint.z << '\n';
-    std::cout << "botCyl_2D is " << botCyl_2D.x << ", " << botCyl_2D.y << ", " << botCyl_2D.z << '\n';
+    // std::cout << "CLOSEST POINT IS " << closestPoint.x << ", " << closestPoint.y << ", " << closestPoint.z << '\n';
+    // std::cout << "botCyl_2D is " << botCyl_2D.x << ", " << botCyl_2D.y << ", " << botCyl_2D.z << '\n';
 }

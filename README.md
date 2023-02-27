@@ -31,3 +31,7 @@ In this game, the user can build worlds with 3 different kinds of parts; cubes, 
 
 - **Feature creep/learning to give up**: I wanted to add a few features that ultimately didn't pan out. Most of the time, this was because I tried to implement them, but they would've taken too much time to solve. Naturally, when I start trying to solve a problem, I hate having to stop, and I just keep thinking about it all day. I had to learn to ignore this obsessive need to solve everything and make my goals more realistic. I had to cut down on the number of things I wanted in the final project for the sake of time and effort.
 
+#### Compile Instructions:
+- Specify the str/include as an include directory to your compiler.
+- Link to freetype.lib, glew32s.lib, and glfw3_mt.lib in the lib directory. If you are not using Windows x64, and/or you want to link dynamically instead of statically, this will not work for you. You will have to fetch the .lib files for your operating system yourself.
+- Compile and link all of the .cpp files in the src directory.

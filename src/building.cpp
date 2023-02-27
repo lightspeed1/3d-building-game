@@ -18,10 +18,14 @@ using namespace glm;
 
 //type of part to add if user wants to add a new part
 int currNewPart = GAMECUBE;
+vec3 currNewColor(1.0f,0.0f,0.0f);
 
 //indices of selected parts in the partPool
 vector<int> selectedParts;
 
+//parts stored in clipboard
+vector<PartData> partsToCopy;
+vector<int> partsToCopyTypes;
 vector<group*> groupsToFix;
 
 
@@ -34,32 +38,95 @@ glm::vec3 lineToPoint(glm::vec3 line, glm::vec3 pt)
     return(realDist);
 }
 
-//this function changes the scale of a part based on how much far of the scaling parts has been dragged.
-void scaleDrag(int partIndex, int scalePartInd, glm::vec3& dragPt)
+//this function changes the scale OR POSITION of a part based on how much far of the scaling parts has been dragged.
+//the scale boolean controls whether the part is moved or scaled up/down.
+void scalePartDrag(std::vector<int> partIndices, int currScalePartInd, glm::vec3& dragPt, bool scale)
 {
+    // if scale == false (we must move) then move all selected parts.
+    // also check if parts are over colliding with others. If so, don't move
+
     //shoot out a ray that represents where the user is clicking
     glm::vec3 ray = shootRay();
-    vec3 origDir = VAOs[GAMECUBE]->normalsArray[scalePartInd];
-    PartData& part = allParts(partIndex);
-    PartData& scalePart = allParts(scalePartInd);
-    glm::vec3 dir = part.applyNM(origDir);
+    vec3 origDir = VAOs[GAMECUBE]->normalsArray[currScalePartInd];
+    
+    PartData& scalePart = allParts(currScalePartInd);
+
+    glm::vec3 dir = origDir;
+    if(partIndices.size() == 1)
+        dir = allParts(partIndices[0]).applyNM(origDir);
     glm::vec3 pointToLine = -lineToPoint(ray, dragPt - camPos);
     vec3 absValueOrig = vec3(abs(origDir.x),abs(origDir.y), abs(origDir.z));
     float increase = glm::dot(dir, pointToLine);
 
     //change the scale for every 1 meter the user drags the scale part in the direction the scale part represents.
-    if(fGEqual(abs(increase/0.5),1))
+    if(fGEqual(abs(increase/0.25),1) && !fGEqual(abs(increase/0.25),1.9f))
     {
-        vec3 ptOnPart = vec3(glm::transpose(part.rotationMatrix) * vec4(scalePart.translate - dir - part.translate, 1.0f));
-        ptOnPart = vec3(part.rotationMatrix * vec4(ptOnPart/part.scaleVector, 1.0f));
-        increase = (int)(increase/0.5) * 0.5;
-        float scaleAdd = increase/glm::dot(dir,ptOnPart);
-        vec3 newScale = (scaleAdd * absValueOrig) + part.scaleVector;
-        if(v3Equal(newScale, glm::vec3(0.0f,0.0f,0.0f)))
-            return;
-        part.scale(newScale);
-        part.translate = part.translate + (dir * increase);
-        dragPt = dragPt + (dir * increase * 2.0f);
+        if(scale)
+        {
+            // for(int i = 0; i < partIndices.size(); i++)
+            // {
+                if(partIndices.size() > 1)
+                    return;
+                PartData& part = allParts(partIndices[0]);
+                PartData oldPD = part;
+                vec3 ptOnPart = vec3(glm::transpose(part.rotationMatrix) * vec4(scalePart.translate - dir - part.translate, 1.0f));
+                ptOnPart = vec3(part.rotationMatrix * vec4(ptOnPart/part.scaleVector, 1.0f));
+                increase = (int)(increase/0.25) * 0.25;
+                float scaleAdd = increase/glm::dot(dir,ptOnPart);
+                vec3 newScale = (scaleAdd * absValueOrig) + part.scaleVector;
+                if(fequal(newScale.x, 0.0f) || fequal(newScale.y, 0.0f) || fequal(newScale.z, 0.0f))
+                    return;
+                part.scale(newScale);
+                part.translate = part.translate + (dir * increase);
+                //check if part collides with any, if so, revert back to old scale.
+                std::vector<int> touching;
+               
+                if(!draggedCheckCollide(partIndices[0], -1, touching, false))
+                {
+                    part = oldPD;
+                }
+                else
+                {
+                    dragPt = dragPt + (dir * increase * 2.0f);
+                }
+            // }
+        }
+        else
+        {
+            bool canMove = true;
+            for(int i = 0; i < partIndices.size(); i++)
+            {
+                PartData& part = allParts(partIndices[i]);
+                increase = (int)(increase/0.25) * 0.25;
+                part.translate += dir * increase * 2.0f;
+                //check if part collides with any, if so, revert back to old scale.
+                std::vector<int> touching;
+                if(draggedCheckCollide(partIndices[i], -1, touching, false) == false)
+                {
+                    for(int j = 0; j < touching.size(); j++)
+                    {
+                        //if the current part we are overcolliding with is not a selected part, we cannot move the selection
+                        if(touching[j] < 0 && std::find(selectedParts.begin(), selectedParts.end(), abs(touching[j])) == selectedParts.end())
+                        {
+                            canMove = false;
+                        }
+                    }
+                }
+            }
+            if(!canMove)
+            {
+                for(int i = 0; i < partIndices.size(); i++)
+                {
+                    PartData& part = allParts(partIndices[i]);
+                    increase = (int)(increase/0.25) * 0.25;
+                    part.translate -= dir * increase * 2.0f;
+                }
+            }
+            else
+            {
+                dragPt = dragPt + (dir * increase * 2.0f);
+            }
+        }
     }
 }
 
@@ -93,7 +160,7 @@ void adjustNewObjPos(int topIndex, int bottomIndex, vector<int>& touching)
     movePartAbove(topIndex, bottomIndex);
     
     bool negative = false;
-    bool doneAdjusting = draggedCheckCollide(topIndex, bottomIndex, touching);
+    bool doneAdjusting = draggedCheckCollide(topIndex, bottomIndex, touching, true);
     while(!doneAdjusting)
     {
         negative = false;
@@ -110,22 +177,108 @@ void adjustNewObjPos(int topIndex, int bottomIndex, vector<int>& touching)
             }
         }
         if(!negative)
+        {
             std::cout << "NO NEGATIVES??\n";
+            break;
+        }
         else
             std::cout << "yes negatives\n";
         //now that we may have changed the position of the top part, we must check again if it is colliding with any other parts.
-        doneAdjusting = draggedCheckCollide(topIndex, bottomIndex, touching);
+        doneAdjusting = draggedCheckCollide(topIndex, bottomIndex, touching, true);
     }
 }
 
+glm::vec3 maxPtInDirMult(std::vector<int> partIndices, glm::vec3 dir)
+{
+    vec3 max(0,0,0);
+    float maxDotDir = -FLT_MAX;
+    for(int i = 0; i < partIndices.size(); i++)
+    {
+        vec3 currMax = maxPtInDir(partIndices[i], dir);
+        float currDotDir = glm::dot(dir, currMax);
+        if(currDotDir > maxDotDir || i == 0)
+        {
+            max = currMax;
+            maxDotDir = currDotDir;
+        }
+    }
+    return max;
+}
+
+void moveMultAbove(std::vector<int> topIndices, int bottomIndex)
+{
+    //to move multiple parts above another part, simply we find the lowest point on any of the mult parts
+    //, then set the y position of this point to the top of the bottom part
+    vec3 upVec = glm::vec3(0.0f,1.0f,0.0f);
+    vec3 topOfBot = maxPtInDir(bottomIndex, upVec);
+    vec3 botOfTopParts = maxPtInDirMult(topIndices, -upVec);
+    float yDifference = glm::dot(upVec, (botOfTopParts - topOfBot));
+    //if the two points are above, the top parts are guaranteed to be above the bottom part.
+    if(yDifference > 0.0f)
+    {
+        return;
+    }
+    for(int i = 0; i < topIndices.size(); i++)
+    {
+        int t = topIndices[i];
+        int b = bottomIndex;
+        PartData& part1 = allParts(t);
+        part1.translate += (upVec * (-0.01f - yDifference));
+    }
+
+
+    
+}
+//adjusts the position of multiple parts that have just been pasted so that they don't overcollide with any other parts
+void adjustNewObjPosMult(std::vector<int>& topIndices, int bottomIndex, vector<int>& touching)
+{
+    //find the middle of the top parts and move parts so that middle aligns with bottom translate
+    glm::vec3 topCenter = centerOfParts(topIndices);
+    glm::vec3 offset = allParts(bottomIndex).translate - topCenter;
+    for(int i = 0; i < topIndices.size(); i++)
+        allParts(topIndices[i]).translate += offset;
+    moveMultAbove(topIndices, bottomIndex);
+    
+    for(int i = 0; i < topIndices.size(); i++)
+    {
+        int topIndex = topIndices[i];
+        bool negative = false;
+        bool doneAdjusting = draggedCheckCollide(topIndex, bottomIndex, touching, false);
+        while(!doneAdjusting)
+        {
+            negative = false;
+            for(int k = 0; k < touching.size(); k++)
+            {
+                int currIndex = touching[k];
+                if(currIndex < 0)
+                {
+                    bottomIndex = abs(currIndex);
+                    moveMultAbove(topIndices, abs(currIndex));
+                    negative = true;
+                    touching.clear();
+                    i = 0;
+                    break;
+                }
+            }
+            if(!negative)
+                std::cout << "NO NEGATIVES??\n";
+            else
+                std::cout << "yes negatives\n";
+            //now that we may have changed the position of the top part, we must check again if it is colliding with any other parts.
+            doneAdjusting = draggedCheckCollide(topIndex, bottomIndex, touching, false);
+
+        }
+        std::cout << "done adjusting\n";
+    }
+}
 //add the a part of the current new type to the workspace.
 void addPart()
 {
     PartData& newPart = *(VAOs[currNewPart]->addPart());
     newPart.color = vec3(1.0f,0.0f,0.0f);
-    int bottomPartInd = 0;
+    vec3 selectedCenter = allParts(6).translate;
     if(selectedParts.size() > 0)
-        bottomPartInd = selectedParts[0];
+        selectedCenter = centerOfParts(selectedParts);
 
     //we set the position of this part to above the currently selected part.
     //if no parts are selected, set the position to above the ground part.
@@ -133,7 +286,7 @@ void addPart()
 
     //we will use the partsrayintersects function to find the real bottom part.
     vec3 botVec = glm::vec3(0.0f, -1.0f, 0.0f);
-    vec3 rayOrigin = allParts(bottomPartInd).translate + glm::vec3(0.0f,100.0f, 0.0f);
+    vec3 rayOrigin = selectedCenter + glm::vec3(0.0f,100.0f, 0.0f);
     vec3 intPt;
     int intNormIndex;
     int trueBottomPart = partsRayIntersects(true, botVec, rayOrigin, &intPt, &intNormIndex, false);
@@ -149,7 +302,8 @@ void addPart()
     
     //now we add the objects that are touching to a group together.
     if(touching.size() > 1)
-        combineParts(touching, topPart);
+        combineParts(touching, topPart, false);
+    newPart.color = currNewColor;
 }
 
 //calculates the total mass and center of mass for a group which consists of 1 or more parts.
@@ -258,26 +412,86 @@ void spawnPart(vec3 pos)
 {
     PartData* newPart = VAOs[currNewPart]->addPart();
     newPart->translate = pos;
+    newPart->color = currNewColor;
 }
 
-//copies all selected parts. currently not used
+//copies all selected parts.
 void copyParts()
 {
-    vector<int> newSelection;
+    //dump part data that is in partsToCopy already
+    partsToCopy.clear();
+    partsToCopyTypes.clear();
     for(int i = 0; i < selectedParts.size(); i++)
     {
-        newSelection.push_back(totalParts);
-        int j = selectedParts[i];
-        PartData* newPart = VAOs[pool[j].type]->addPart();
-        (*newPart) = allParts(j);
+        partsToCopy.push_back(allParts(selectedParts[i]));
+        partsToCopyTypes.push_back(pool[selectedParts[i]].type);
     }
-    selectedParts = std::move(newSelection);
+}
+
+glm::vec3 centerOfParts(std::vector<int>& partIndices)
+{
+    vec3 mid;
+    for(int i = 0; i < partIndices.size(); i++)
+    {
+        mid += allParts(partIndices[i]).translate;
+    }
+    mid = mid/((float)partIndices.size());
+    return mid;
+}
+
+//pastes copied parts into the world
+void pasteParts()
+{
+    //find middle of selected parts, for later step
+    vec3 selectedCenter = allParts(6).translate;
+    if(selectedParts.size() > 0)
+        selectedCenter = centerOfParts(selectedParts);
+    //the pasted parts will be selected, clear what is in selection now
+    selectedParts.clear();
+    for(int i = 0; i < partsToCopy.size(); i++)
+    {
+        selectedParts.push_back(totalParts);
+        //create new part
+        PartData* newPart = VAOs[partsToCopyTypes[i]]->addPart();
+        //copy old part data into new part
+        (*newPart) = partsToCopy[i];
+    }
+    //now we must adjust the position of all the parts
+    //--------------
+
+    vec3 botVec = glm::vec3(0.0f, -1.0f, 0.0f);
+    vec3 rayOrigin = selectedCenter + glm::vec3(0.0f,200.0f, 0.0f);
+    vec3 intPt;
+    int intNormIndex;
+    int trueBottomPart = partsRayIntersects(true, botVec, rayOrigin, &intPt, &intNormIndex, false);
+    std::cout << "TRUE BOTTOM PART IS " << trueBottomPart << '\n';
+    vector<int> touching;
+    int topPart = totalParts-1;
+    adjustNewObjPosMult(selectedParts, trueBottomPart, touching);
+
+    //done with above
+
+    touching.insert(touching.end(), selectedParts.begin(), selectedParts.end());
+    std::sort(touching.begin(), touching.end());
+    touching.erase(std::unique(touching.begin(), touching.end()), touching.end());
+    // touching.push_back(topPart);
+
+    
+    for(int i = 0; i < touching.size(); i++)
+        if(allPhys(touching[i]).stationary == true)
+            removeFromVec(touching, touching[i]);
+    
+    //now we add the objects that are touching to a group together.
+    std::cout << "TOUCHING SIZE = " << touching.size() << '\n';
+    if(touching.size() > 1)
+        combineParts(touching, -1, true);
 }
 
 //combines parts into a group. if the parts are already in
 //their own groups, combines the groups
 //also, add each part to each others adjacency lists
-void combineParts(std::vector<int>& p, int draggedPart)
+//has slightly different behavior when there are multiple "dragged" parts.
+void combineParts(std::vector<int>& p, int draggedPart, bool multipleDrag)
 {
     groups.push_back(group());
     group& newGroup = groups.back(); 
@@ -307,18 +521,39 @@ void combineParts(std::vector<int>& p, int draggedPart)
 
 
     //setting the adjacency lists of the parts
-    for(int i = 0; i < p.size(); i++)
+    if(!multipleDrag)
     {
-        vector<int>& adj = pool[p[i]].nodeInfo.adjacent; 
-        if(p[i] == draggedPart)
+        for(int i = 0; i < p.size(); i++)
         {
-            adj = p;
-            adj.erase(std::remove(adj.begin(), adj.end(), p[i]));
+            vector<int>& adj = pool[p[i]].nodeInfo.adjacent; 
+            if(p[i] == draggedPart)
+            {
+                adj = p;
+                adj.erase(std::remove(adj.begin(), adj.end(), p[i]));
+            }
+            else
+            {
+                if(std::find(adj.begin(), adj.end(), draggedPart) == adj.end())
+                    adj.push_back(draggedPart);
+            }
         }
-        else
+
+    }
+    //if multiple drag is true, the dragged part argument will be ignored
+    else
+    {
+        for(int i = 0; i < p.size(); i++)
         {
-            if(std::find(adj.begin(), adj.end(), draggedPart) == adj.end())
-                adj.push_back(draggedPart);
+            vector<int>& adj = pool[p[i]].nodeInfo.adjacent;
+            adj.clear();
+            for(int j = 0; j < totalParts; j++)
+            {
+                vec3 intData[3];
+                if(SAT(p[i], j, intData) == true)
+                {
+                    adj.push_back(j);
+                }
+            }
         }
     }
     // std::cout << "GROUP IN COMBINE PARTS IS \n";

@@ -211,23 +211,29 @@ std::vector<texture> partButtonTextures{
 std::vector<std::string> saves;
 
 //adjusts the size of the scale parts so that they take up the same amount of the screen no matter how for away the user is away from thm.
-//also, for each scale part, set their position to be 1 meter away on the positive or negative x, y, or z axis from a part's furthest point on that axis.
-void setScalePartsPosAndScale(int selectedPart)
+//also, for each scale part, set their position to be 1 meter away on the positive or negative x, y, or z axis from the selecte parts' furthest point on that axis.
+void setScalePartsPosAndScale(std::vector<int>& currSelected)
 {
-    PartData& part = allParts(selectedPart);
     for(int i = 0; i < 6; i++)
     {
-        PartData& currPart = allParts(i);
-        vec3 currNorm = part.applyNM(VAOs[GAMECUBE]->normalsArray[i]);
-        vec3 maxPt = maxPtInDir(selectedPart, currNorm);
-        vec3 scalePos = currNorm + (currNorm * glm::dot(currNorm, maxPt - part.translate)) + part.translate;
+        PartData& currScalePart = allParts(i);
+
+        vec3 currNorm = VAOs[GAMECUBE]->normalsArray[i];
+        if(currSelected.size() == 1)
+        {
+            PartData& part = allParts(currSelected[0]);
+            currNorm = part.applyNM(VAOs[GAMECUBE]->normalsArray[i]);
+        }
+        vec3 maxPt = maxPtInDirMult(currSelected, currNorm);
+        vec3 mid = centerOfParts(currSelected);
+        vec3 scalePos = currNorm + (currNorm * glm::dot(currNorm, maxPt - mid)) + mid;
         // scalePartsPositions[i] = scalePos;
-        currPart.translate = scalePos;
+        currScalePart.translate = scalePos;
         vec3 v = scalePos;
         vec4 pos1 = view * vec4(v.x, v.y, v.z, 1.0f);
-        float s1 = 0.3 * pos1.z;
+        float s1 = 0.5 * pos1.z;
         vec3 s = s1 * vec3(0.1, 0.1, 0.1);
-        currPart.scale(s);
+        currScalePart.scale(s);
     }
 }
 
@@ -252,7 +258,7 @@ void updateScaleParts()
 {
     if(selectedParts.size() <= 0)
         return;
-    setScalePartsPosAndScale(selectedParts[0]);
+    setScalePartsPosAndScale(selectedParts);
 }
 
 bool tbClicked = false;
@@ -294,14 +300,25 @@ void nothingFunc(buttonData& btn)
 
 void nameButtonClicked(buttonData& btn)
 {
-    currFile = btn.text;
-    tbClicked = true;
+    // if(!creatingTB)
+    // {
+        currFile = btn.text;
+        tbClicked = true;
+    // }
+    // else
+    // {
+    //     creatingTB = false;
+    //     currTextBox = NULL;
+        
+    // }
 }
 
+bool creatingTB = false;
 void newSaveButtonClicked(buttonData& btn)
 {
     newSave("");
     currTextBox = &nameButtons.back();
+    creatingTB = true;
 }
 
 //changes the type of new part that will be added
@@ -458,12 +475,13 @@ and cylinders.
 Change the rotation of the camera by holding the right mouse button down and dragging the mouse. 
 
 --MANIPULATING PARTS: 
--Create a new part by selecting the part you want to build it on and pressing F. 
-Select a part by clicking on it. You can change the color of a part by clicking on it, 
+-Select a part by clicking on it. Select multiple parts by holding ctrl, then clicking and dragging. 
+Create a new part by selecting the part you want to build it on and pressing F. You can change the color of a part by clicking on it, 
 selecting the "COLOR" button and typing an RGB value (three numbers). Each number in this value ranges from 0.0 to 1.0 
 and is separated from the others with a comma. A part can be moved by clicking and 
-dragging it around. A part can be scaled up or down by dragging the blue squares that appear 
-on all sides of it when the part is selected. Delete a part by selecting it and pressing BACKSPACE. 
+dragging it around. When a part is selected, press q to toggle between scaling and moving parts. When the cubes surrounding the selected parts are blue, 
+the part can be scaled up or down by dragging these surrounding cubes. When they are yellowish brown, drag them to move the selected parts. 
+Delete a part by selecting it and pressing BACKSPACE. 
 
 --SAVING WORLDS: 
 -You can save a world you have created by pressing L to bring up the save menu. Within the 
@@ -475,12 +493,12 @@ the LOAD button, and delete it by pressing the trash can button next to the save
 --FREEZE AND UNFREEZE: 
 -While playing the game, you can hold the parts in place by clicking the FREEZE button. 
 Clicking the UNFREEZE button will cause all parts to be affected by physics. They will fall 
-due to gravity and collide with eachother. 
+due to gravity and collide with eachother. Make sure you save your world before you do this!
 
 --EXPLOSIONS: 
 -You can cause parts to detach from eachother by pressing Z when the parts are unfrozen. 
 When Z is pressed, an explosion will be created where your mouse is pointing, causing 
-parts to detach from one another and be blown away. 
+parts to detach from one another and be blown away.
 )";
 
 //inserts newline characters in a string so that it doesn't go off the screen when displayed.
@@ -571,9 +589,9 @@ void drawSaveMenu()
     float belowHeader = menuTop - (headerInfo.maxTop - headerInfo.minBottom) - 50.0f;
     float xPos = 25.0f;
     float yPos = offset + belowHeader;
-    // glViewport(menuLeft, menuBottom, menuRight - menuLeft, menuTop - menuBottom);
-    buttonData* currBtnPtr;
+
     //now we render the "new save" button that creates a new save file
+    bool renderedCurrFile = false;
     for(int i = 0; i < nameButtons.size(); i++)
     {
         glm::vec2 dims;
@@ -592,9 +610,10 @@ void drawSaveMenu()
         nameButton.position = vec2(menuLeft, textMid + scrollAmount);
         drawButton(nameButton);
 
-        if(currName != currFile)
+        if(currName != currFile || renderedCurrFile)
             continue;
-
+        std::cout << currFile << " : currfile\n";
+        renderedCurrFile = true;
         glm::vec2 buttonSize = (screenCoordsToNDC(80.0f, 40.0f) + glm::vec2(1.0f,1.0f))/0.5f;
         float buttonWidth = 2*(buttonSize.x * 0.5f) * dims.x/2.0f;
         float buttonPosXPix = xPos + strInfo.totalWidth + buttonWidth/2.0f;

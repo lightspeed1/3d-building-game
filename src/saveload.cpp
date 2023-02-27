@@ -123,6 +123,7 @@ std::vector<int> emptyVec;
 //Loads the parts from a world into the current scene
 void loadWorld(std::string name)
 {
+    selectedParts.clear();
     std::string newFileName = name + ".txt";
     std::string path = ".\\worlds\\" + newFileName;
     if(!fs::exists(path))
@@ -156,7 +157,7 @@ void loadWorld(std::string name)
     for(int i = 0; i < numVAOs; i++)
     {
         VAOData& currVAO = *VAOs[i];
-        currVAO.numParts = -1;
+        currVAO.numParts = 0;
         currVAO.parts.clear();
         currVAO.partsPhysics.clear();
         if(!file.read((char*)&currVAO.numParts, sizeof(currVAO.numParts)))

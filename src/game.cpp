@@ -89,7 +89,8 @@ bool rightPressedLastMove = false;
 int mouseX;
 int mouseY;
 
-GLFWwindow* window;
+GLFWwindow* win;
+
 
 //global variables for selecting multiple parts
 bool ctrlHeld = false;
@@ -142,8 +143,8 @@ void mousePosCallback(GLFWwindow* window, double x, double y)
     
     if(gameMode == FREEZE)
     {
-        if(updateScale)
-            scaleDrag(selectedParts[0], scalePartInd, intPtClose);
+        if(draggingScalePart)
+            scalePartDrag(selectedParts, scalePartInd, intPtClose, scaleSelected);
         else
             dragParts();
     }
@@ -191,11 +192,11 @@ void mousePosCallback(GLFWwindow* window, double x, double y)
 }
 
 //converts a position on the screen into a vector whose origin is the camera.
-glm::vec3 screenPosToRay(int mouseX, int mouseY)
+glm::vec3 screenPosToRay(int x, int y)
 {
     //x and y from center in pixels
-    float xFromCenter = (mouseX - (pixelWidth/2.0f));
-    float yFromCenter = (mouseY - (pixelHeight/2.0f));
+    float xFromCenter = (x - (pixelWidth/2.0f));
+    float yFromCenter = (y - (pixelHeight/2.0f));
 
     //we need to calculate an arbitrary depth of triangle to get the yaw and pitch angles
     float addYaw = atan(xFromCenter/depth);
@@ -208,7 +209,7 @@ glm::vec3 screenPosToRay(int mouseX, int mouseY)
 glm::vec3 shootRay()
 {
     double x,y;
-    glfwGetCursorPos(window, &x, &y);
+    glfwGetCursorPos(win, &x, &y);
     glm::vec3 ray = glm::normalize(screenPosToRay(x,y));
     return ray;
 }
@@ -278,7 +279,9 @@ int farNormIndex;
 
 //checks if two parts are colliding, and if the first part is overcolliding with any others
 //stores the overcolliding parts in the "touching" vector
-bool draggedCheckCollide(int partIndex, int farIndex, std::vector<int>& touching)
+
+#pragma optimize("gty", off)
+bool draggedCheckCollide(int partIndex, int farIndex, std::vector<int>& touching, bool requireTouchingFar)
 {
     touching.clear();
     bool collisions = false;
@@ -292,19 +295,31 @@ bool draggedCheckCollide(int partIndex, int farIndex, std::vector<int>& touching
     float p1Max = std::max(std::max(part1.scaleVector.x, part1.scaleVector.y), part1.scaleVector.z);
     for(int j = 6; j < totalParts; j++)
     {
+        // std::cout << "J IS FIRST " << j << '\n';
+        if(j < 0 || j > totalParts)
+        {
+            return false;
+        }
         if(j == i)
             continue;
         PartData& part2 = allParts(j);
         PhysicsData& physics2 = allPhys(j);
         unsigned int p2Type = pool[j].type;
+        glm::vec3& p2Translate = part2.translate;
 
+        // p1Translate - p2Translate;
+        // glm::vec3 hi = operator-(p1Translate,  p2Translate);
+        // part1.translate - part2.translate;
+        // from1 - from2;
+        float distBtw = glm::length(p1Translate - p2Translate);
         float p2Max = std::max(std::max(part2.scaleVector.x, part2.scaleVector.y), part2.scaleVector.z);
-        if(glm::length(p1Translate - part2.translate) > (p2Max + p1Max + 2.0f))
+        if(distBtw > (p2Max + p1Max + 2.0f))
             //it is not possible for p1 and p2 to intersect
             continue;
 
         //if we have reached this point, we check for intersection
         glm::vec3 intPts[3];
+        // std::cout << "J IS " << j << '\n';
         bool result = SAT(i, j, intPts);
         //if they don't collide, continue
         if(!result)
@@ -312,7 +327,7 @@ bool draggedCheckCollide(int partIndex, int farIndex, std::vector<int>& touching
         if(j == farIndex)
         {
             touchingFar = true;
-            std::cout << "TOUCHING FAR\n";
+            // std::cout << "TOUCHING FAR\n";
         }
         touching.push_back(j);
 
@@ -322,16 +337,16 @@ bool draggedCheckCollide(int partIndex, int farIndex, std::vector<int>& touching
             continue;
         collisions = true;
         touching[touching.size()-1] *= -1;
-        continue;
-        std::cout << "LEN IS " << len << '\n';
+        // std::cout << "J IS ENDING " << j << '\n';
+        // std::cout << "LEN IS " << len << '\n';
     }
-    if(!touchingFar)
-    {
-        std::cout << "NOT TOUCHING FAR. Far is: " << farIndex << '\n';
-    }
-    if(collisions)
-        std::cout << "OVERCOLLIDING\n";
-    return (!collisions);
+    // if(!touchingFar)
+    // {
+    //     // std::cout << "NOT TOUCHING FAR. Far is: " << farIndex << '\n';
+    // }
+    // if(collisions)
+        // std::cout << "OVERCOLLIDING\n";
+    return (!collisions && (touchingFar || !requireTouchingFar));
 }
 
 //remove integer from a vector of ints
@@ -417,7 +432,7 @@ void dragParts()
         if(allPhys(selectedParts[0]).stationary == true)
             return;
         double x,y;
-        glfwGetCursorPos(window, &x, &y);
+        glfwGetCursorPos(win, &x, &y);
         glm::vec3 ray = screenPosToRay(x,y);
         int farObject = partsRayIntersects(true, ray, camPos, &intPtFar, &farNormIndex, true);
         if(farObject == -1)
@@ -482,20 +497,21 @@ void dragParts()
         float amountRight = 0.25f * (roundf(glm::dot(rightFaceVec, finalTranslate)/0.25f));
         //SUBTRACTING 0.001 so they collide
         finalTranslate = (intPtFarNorm * ((glm::dot(finalTranslate, intPtFarNorm)) - 0.001f)) + amountUp * upFaceVec + amountRight * rightFaceVec;
-        std::cout << " int pt far norm !!!!!!!!!: "; printVec3(intPtFarNorm);
+        // std::cout << " int pt far norm !!!!!!!!!: "; printVec3(intPtFarNorm);
         glm::vec3 oldTranslate = selectedPart->translate;
         selectedPart->translate = finalTranslate;
 
         //now we must check whether or not the selectedPart now collides a lot with other parts next to it
         //-if so, we move it up until it doesn't collide anymore.
         std::vector<int> touching;
-        bool result = draggedCheckCollide(selectedIndex, farObject, touching);
+        bool result = draggedCheckCollide(selectedIndex, farObject, touching, true);
         //result is true if the selected part is touching the far object and it is not
         //-over penetrating any other parts
+        // std::cout << "RESULT IS: " << result << '\n';
         if(!result || finalTranslate == oldTranslate)
         {
             selectedPart->translate = oldTranslate;
-            std::cout << "dragreturn" << result << '\n';
+            // std::cout << "dragreturn" << result << '\n';
             return;
         }
         
@@ -503,7 +519,6 @@ void dragParts()
         touching.push_back(selectedIndex);
         
         //remove selected part from the group and adjacency lists it is currently in if any
-        // std::cout << "selected index is " << selectedIndex << '\n';
         
         detachPart(selectedIndex);
 
@@ -514,7 +529,7 @@ void dragParts()
         }
         //now we add the objects that are touching to a group together.
         if(touching.size() > 1)
-            combineParts(touching, selectedIndex);
+            combineParts(touching, selectedIndex, false);
         // std::cout << "touching final:\n";
         // for(int z = 0; z < touching.size(); z++)
         // {
@@ -541,7 +556,7 @@ int partsRayIntersects(bool noScaleParts, glm::vec3 ray, glm::vec3 rayOrigin, gl
     int numIntersect = 0;
     int closestIndex = -1;
     float closestDist = INT_MAX;
-    float partsChecking = totalParts;
+    int partsChecking = totalParts;
     int i = noScaleParts ? 6 : 0;
     for(; i < partsChecking; i++)
     {
@@ -554,7 +569,7 @@ int partsRayIntersects(bool noScaleParts, glm::vec3 ray, glm::vec3 rayOrigin, gl
         bool result = rayIntersectsPart(i, returnUnselected, rayOrigin, ray, &lenToIntPt, &intPt, &intNormIndex);
         if(result == false)
             continue;
-        std::cout << "After\nASDASDASDSAD";
+        // std::cout << "After\nASDASDASDSAD";
         PartData* currPart;
         // if(!checkScaleParts) 
         currPart = &allParts(i);
@@ -680,14 +695,14 @@ bool rayIntersectsPart(int partIndex, bool returnUnselected, glm::vec3 rayOrigin
     return success;
 }
 
-//changes the screen position of the frustum if we are currently selecting multiple parts (with ctrl + click).
+//changes the screen position of the frustum we are using to currently select multiple parts (with ctrl + click).
 void updateSelectVerts()
 {
     glm::vec2 s, e;
     multSelectPositions[0] = s = startSelection;
     
     double x,y;
-    glfwGetCursorPos(window, &x, &y);
+    glfwGetCursorPos(win, &x, &y);
     multSelectPositions[2] = e = glm::vec2(x, y);
     glm::vec2 pos2, pos4;
     //start and end in bottom left and top right
@@ -712,7 +727,7 @@ void updateSelectVerts()
 }
 
 //checks if a button (on screen) is being clicked
-bool buttonPressed(buttonData& currButton, float mouseX, float mouseY, bool inMenu)
+bool buttonPressed(buttonData& currButton, float x, float y, bool inMenu)
 {
     bool pressed = false;
     if(currButton.visible == false)
@@ -722,8 +737,8 @@ bool buttonPressed(buttonData& currButton, float mouseX, float mouseY, bool inMe
     {
         float newWidth = menuRight - menuLeft, oldWidth = pixelWidth;
         float newHeight = menuTop - menuBottom, oldHeight = pixelHeight;
-        mouseX *= oldWidth/newWidth;
-        mouseY *= oldHeight/newHeight;
+        x *= oldWidth/newWidth;
+        y *= oldHeight/newHeight;
     }
     vec2 pos = currButton.position;
     vec2 scale = currButton.scale;
@@ -735,7 +750,7 @@ bool buttonPressed(buttonData& currButton, float mouseX, float mouseY, bool inMe
 
 
     //now we check if mouse is inside this button
-    if(mouseX >= leftX && mouseX <= rightX && mouseY <= topY && mouseY >= bottomY)
+    if(x >= leftX && x <= rightX && y <= topY && y >= bottomY)
     {
         pressed = true;
         std::cout << "button pressed.\n";
@@ -749,9 +764,9 @@ bool buttonsPressed()
 {
     bool pressed = false;
     double x,y;
-    glfwGetCursorPos(window, &x, &y);
-    float mouseX = x;
-    float mouseY = pixelHeight - y;
+    glfwGetCursorPos(win, &x, &y);
+    mouseX = x;
+    mouseY = pixelHeight - y;
     std::cout << mouseX << " mouseX\n";
     std::cout << mouseY << " mouseY\n";
     int start = 0, end = 0;
@@ -783,8 +798,9 @@ bool buttonsPressed()
 }
 
 //globals for whether or not we are dragging the scaling parts, and if so, which one we are dragging
-bool updateScale = false;
+bool draggingScalePart = false;
 int scalePartInd = -1;
+bool scaleSelected = true;
 
 float newPrecision(float x, int precision)
 {
@@ -821,6 +837,13 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
     {
         if(action == GLFW_PRESS)
         {
+            if(creatingTB)
+            {
+                currTextBox = NULL;
+                creatingTB = false;
+                saves.pop_back();
+                nameButtons.pop_back();
+            }
             colorTB = false;
             bool pressed = buttonsPressed();
             std::cout << "Pressed\n";
@@ -831,7 +854,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
             if(gameState != PLAYING)
                 return;
             //toggle selecting multiple parts
-            if(ctrlHeld && false)
+            if(ctrlHeld)
             {
                 multipleSelect = true;
                 startSelection = glm::vec2(mouseX, mouseY);
@@ -845,14 +868,14 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                 //first we check if we are clicking any parts used for scaling, which take priority over all others.
 
                 int closestIndex = partsRayIntersects(false, ray, camPos, &intPtClose, &closeNormIndex, false);
-                if(closestIndex != -1)
+                if(closestIndex != -1 && closestIndex != 6)
                 {
                     glfwSetCursor(window, cursor);
                     if(closestIndex < 6)
                     {
                         //we are clicking a scale part
                         scalePartInd = closestIndex;
-                        updateScale = true;
+                        draggingScalePart = true;
                     }
                     else
                     {
@@ -883,11 +906,13 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         else if(action == GLFW_RELEASE)
         {
             glfwSetCursor(window, NULL);
-            updateScale = false;
+            draggingScalePart = false;
             leftClickHeld = false;
             //now we must calculate the vector pointing towards where we clicked
             if(multipleSelect)
             {
+                
+                
                 selectedParts.clear();
                 glm::vec2* msv = multSelectPositions;
                 glm::vec2 s = msv[0], pos2 = msv[1], e = msv[2], pos4 = msv[3];
@@ -895,7 +920,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                     screenPosToRay(e[0],e[1]), screenPosToRay(pos4[0],pos4[1])};
                 std::vector<glm::vec3> norms = normalsFromRays(rays);
                 int numInFrustum = 0;
-                for(int i = 6; i < totalParts; i++)
+                for(int i = 7; i < totalParts; i++)
                 {
                     PartData* currPart = &allParts(i);
                     bool result = objectInFrustum(norms,currPart->translate);
@@ -906,11 +931,23 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                         selectedParts.push_back(i);
                     }
                 }
+                if(numInFrustum > 1)
+                {
+                    colorButton.text = "";
+                }
+                else if(numInFrustum == 1)
+                {
+                    colorButton.text = vec3ToString(allParts(selectedParts[0]).color);
+                }
                 // std::cout << "numin:" << numInFrustum << '\n';
             }
             multipleSelect = false;
+            std::cout << "multselectVerts:\n";
+            for(vec3 ok : multSelectVerts)
+            {
+                printVec3(ok); std::cout << "\n";
+            }
 
-            //cull2
         }
     }
 }
@@ -974,6 +1011,13 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
     }
 }
 
+void toggleScaleOrMove()
+{
+    scaleSelected = !scaleSelected;
+    for(int i = 0; i < 6; i++)
+        allParts(i).color = (float)scaleSelected * vec3(0.0f,0.0f,1.0f) + (float)!scaleSelected * vec3(0.5f,0.5f,0.0f);
+}
+
 //checks if user has pressed a button on the keyboard
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
@@ -988,17 +1032,37 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
                 currTextBox->text.pop_back();
             else if(key == GLFW_KEY_ENTER)
             {
-                currTextBox = NULL;
                 if(colorTB)
                 {
                     bool success;
                     vec3 newColor = stringToVec3(colorButton.text, success);
                     if(success)
-                        allParts(selectedParts[0]).color = newColor;
+                    {
+                        currNewColor = newColor;
+                        for(int i = 0; i < selectedParts.size(); i++)
+                        {
+                            allParts(selectedParts[i]).color = newColor;
+                        }
+                    }
                     else
                         colorButton.text = vec3ToString(allParts(selectedParts[0]).color);
                     colorTB = false;
+                    currTextBox = NULL;
                 }
+                else
+                {
+                    if(std::find(saves.begin(), saves.end(), currTextBox->text) != saves.end())
+                    {
+                        //not done yet, we can't create a new save with the same name as an old one
+                        std::cout << "Can't create new save with duplicate name\n";
+                    }
+                    else
+                    {
+                        currTextBox = NULL;
+                        creatingTB = false;
+                    }
+                }
+                
             }
             return;
         }
@@ -1045,6 +1109,19 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
                 scrollAmount = 0;
                 gameState = TITLESCREEN;
                 break;
+            case GLFW_KEY_Q:
+                toggleScaleOrMove();
+                break;
+            //copies parts
+            case GLFW_KEY_C:
+                if(selectedParts.size() > 0)
+                    copyParts();
+                break;
+            //pastes parts
+            case GLFW_KEY_V:
+                if(partsToCopy.size() > 0)
+                    pasteParts();
+                break;
             //creates an explosion
             case GLFW_KEY_Z:
                 // shootRay
@@ -1052,9 +1129,10 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
                 vec3 explosionPt; int closeNormExplosion;
                 int closestIndex = partsRayIntersects(false, ray, camPos, &explosionPt, &closeNormExplosion, false);
                 if(closestIndex != -1)
-                    createExplosion(explosionPt, 15.0f, 0.8f);
+                    createExplosion(explosionPt, 20.0f, 1.0f);
                 startTiming = true;
                 break;
+           
         }
     }
     if(action == GLFW_RELEASE)
@@ -1113,6 +1191,10 @@ void move()
 //changing the size of the window
 void framebuffer_size_callback(GLFWwindow *window, int width, int height)
 {
+    if(width == 0 || height == 0)
+    {
+        return;
+    }
     glViewport(0, 0, width, height);
     // return;
     pixelWidth = width;
@@ -1184,19 +1266,19 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    window = glfwCreateWindow(640, 480, "My game", NULL, NULL);
+    win = glfwCreateWindow(640, 480, "My game", NULL, NULL);
     
     //callbacks - tells glfw what to do with input from user
-    glfwSetKeyCallback(window, key_callback);
-    glfwSetScrollCallback(window, scroll_callback);
-    glfwSetCursorPosCallback(window, mousePosCallback);
-    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-    glfwSetMouseButtonCallback(window, mouse_button_callback);
-    if(!window)
+    glfwSetKeyCallback(win, key_callback);
+    glfwSetScrollCallback(win, scroll_callback);
+    glfwSetCursorPosCallback(win, mousePosCallback);
+    glfwSetFramebufferSizeCallback(win, framebuffer_size_callback);
+    glfwSetMouseButtonCallback(win, mouse_button_callback);
+    if(!win)
     {
         std::cout << "CAN'T CREATE GLFW WINDOW";
     }
-    glfwMakeContextCurrent(window);
+    glfwMakeContextCurrent(win);
     //initialize glew here
     GLenum error = glewInit();
     if(error != GLEW_OK)
@@ -1208,7 +1290,6 @@ int main()
     //set texture settings
     stbi_set_flip_vertically_on_load(true);
     int hello = 1;
-    int hi = 3;
     glEnable(GL_VERTEX_PROGRAM_POINT_SIZE);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
@@ -1247,7 +1328,7 @@ int main()
     }
 
     VAOs[pt]->parts[0+c].translate = glm::vec3(0.0f,-2.0f,0.0f);
-    VAOs[pt]->parts[0+c].scale({10.0f,1.0f,10.0f}); 
+    VAOs[pt]->parts[0+c].scale({1000.0f,1.0f,1000.0f}); 
     VAOs[pt]->parts[1+c].scale({1.0f,1.0f,10.0f}); 
     VAOs[pt]->parts[1+c].translate = vec3(2.0f,2.0f,4.0f);
     VAOs[pt]->parts[2+c].rotate(vec3(1.0f,1.0f,1.0f), glm::radians(30.0f));
@@ -1275,18 +1356,22 @@ int main()
     getOldSaves();
     std::cout << "START DRAWING\n";
 
-    while(!glfwWindowShouldClose(window))
+    while(!glfwWindowShouldClose(win))
     {
-        // break;
-        //game loop i think
+        //game loop
+        glfwPollEvents();
+        if(glfwGetWindowAttrib(win, GLFW_ICONIFIED))
+        {
+            continue;
+        }
         frame1Time = frame2Time;
         frame2Time = glfwGetTime();
         deltaTime = frame2Time - frame1Time;
         speed = 5.0f * deltaTime;
-        if(multipleSelect)
+        
+        if(selectedParts.size() != 0)
         {
-            updateSelectVerts();
-            // drawSquareFrame(multSelectVerts);
+            updateScaleParts();
         }
 
         fixGroups();
@@ -1294,7 +1379,6 @@ int main()
         
         move();
         
-        glfwPollEvents();
         //view matrix (transform world to camera/view coords)
         view = glm::mat4(1.0f);
         view = glm::lookAt(camPos, camPos + camFront, camUp);
@@ -1305,6 +1389,8 @@ int main()
 
         glDisable(GL_STENCIL_TEST);
         //draw correct screen based on gameState
+        int hi = VAOs[GAMECUBE]->numParts;
+        int hi2 = VAOs[GAMECUBE]->parts.size();
         switch(gameState)
         {
             case PLAYING:
@@ -1333,7 +1419,7 @@ int main()
                 // glEnable(GL_DEPTH_TEST);
                 // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
                 // drawPoint(rayIntPt, glm::vec3(0.0f,1.0f,0.0f));
-                updateScaleParts();
+                
                 updateAndDraw(false, false, true);
                 drawSceneButtons();
                 break;
@@ -1347,12 +1433,17 @@ int main()
                 drawInstructionMenu();
                 break;
         }
-
-        glfwSwapBuffers(window);
+        if(multipleSelect)
+        {
+            updateSelectVerts();
+            drawSquareFrame(multSelectVerts);
+        }
+        glfwSwapBuffers(win);
         if(gameState == PLAYING && gameMode == UNFREEZE)
             physicsTick();
+
     }
-    glfwDestroyWindow(window);
+    glfwDestroyWindow(win);
     glfwTerminate();
     std::cout << "main done\n";
 }

@@ -36,7 +36,6 @@ void main()
     // texCoords_ = texCoords;
     vec3 orig = norms[offset + int(normInd)];
     norm = normalize(normalMatrix * orig);
-    // norm = normalize(normalMatrix[1]);
 }
 )";
 const char* cubeFragShaderSource = R"(

@@ -42,5 +42,15 @@ void ShaderProgram::createProgram()
     glDeleteShader(fragmentShaderObject);
     glDeleteShader(vertexShaderObject);
     programID = shaderProgram;
+    GLint success = 0;
+    glGetShaderiv(vertexShaderObject, GL_COMPILE_STATUS, &success);
+    if(success == GL_FALSE)
+    {
+        std::cout << "FAILED!!!!!!!!!!!!!!\n\n\n\n\n";
+
+        GLint logSize = 0;
+        glGetShaderiv(shaderProgram, GL_INFO_LOG_LENGTH, &logSize); 
+
+    }
     return;
 }
