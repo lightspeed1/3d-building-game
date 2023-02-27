@@ -2,7 +2,9 @@
 This is a 3D building game written in C++. I used OpenGL with GLEW to draw graphics, and GLM (OpenGL mathematics library) for linear algebra computations. I have written the game from (nearly) complete scratch. This includes collision detection, graphics (with the help of learnopengl.com), and physics.
 
 #### Video Demo
-![](https://github.com/lightspeed1/3d-building-game/raw/main/3DGameDemo.mp4)
+https://user-images.githubusercontent.com/49415592/221490806-c5b232fc-55a0-49d7-b6ed-f608b4f90c64.mp4
+
+
 
 #### Libraries Used:
 - **GLEW** (for rendering graphics)
